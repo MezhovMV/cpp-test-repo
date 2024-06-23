@@ -54,10 +54,15 @@ public:
     void AddDocument(int document_id, const string& document) {
         for (const string& word : SplitIntoWordsNoStop(document)) {
            document_count_++;
-           word_to_documents_[word].insert({document_id, 1.0/SplitIntoWordsNoStop(document).size() * count(SplitIntoWordsNoStop(document).begin(), SplitIntoWordsNoStop(document).end(), word) });
+           double tf = 1.0/SplitIntoWordsNoStop(document).size() * count(SplitIntoWordsNoStop(document).begin(), SplitIntoWordsNoStop(document).end(), word);
             
+   
+         
+            
+            word_to_documents_[word].insert({document_id, tf});
         }
-        return;
+        
+       
     }
    
     vector<Document> FindTopDocuments(const string& raw_query) const {
@@ -73,7 +78,7 @@ public:
         return matched_documents;
     }
 private:
-    int documentcount = 0;    
+    int document_count_ = 0;    
     struct QueryWord {
         string data;
         bool is_minus;
@@ -86,11 +91,8 @@ private:
     set<string> stop_words_;
     
     // будем хранить в словаре номер документа сразу с TF
-    struct IdWithTf {
-        int id;
-        double tf;
-    };
-    map<string, set<IdWithTf>> word_to_documents_;
+ 
+    map<string, map<int, double>> word_to_documents_;
     
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
@@ -141,28 +143,34 @@ private:
             
           // Если слово есть в словаре
             // вычилим релевантнось
-
-
-for (const auto &current_document : word_to_documents_.at(word)) {
-                double idf = log (documentcount / word_to_documents_.at(word).size());
-                double current_relevance = idf *current_document.tf;
+            double idf = log (document_count_ / word_to_documents_.at(word).size());
+            for (auto &[id, tf] : word_to_documents_.at(word)) {            
+                double current_relevance = idf * tf;
+                
                 // запишим результат в словарь id-релевантось сумируя с прошлыми записями по id
                 //для этого проверим если запись для этого id если нет то создадим
-                if (document_to_relevance.count(current_document.id) == 0) {
-                   document_to_relevance.insert({current_document.id, current_relevance}); 
+                if (document_to_relevance.count(id) == 0) {
+                   document_to_relevance.insert({id, current_relevance}); 
                 }
                 // если есть то увеличим релевантнось
-                else {document_to_relevance[current_document.id] += current_relevance; }
-            }
+                else {document_to_relevance[id] += current_relevance; }
+                
+                }
         }
+        
             
             // проходим по минус словам
         for (const string& word : query.minus_words) {
             if (word_to_documents_.count(word) == 0) {
                 continue;
             }
-            for (const auto current_document : word_to_documents_.at(word)) {
-                document_to_relevance.erase(current_document.id);
+            for (auto &[id, tf] : word_to_documents_.at(word)) {               
+                     if (!document_to_relevance.count(id) == 0) {
+                         document_to_relevance.erase(id);
+                     } 
+                 
+                
+                
             }
         }
         
@@ -170,6 +178,7 @@ for (const auto &current_document : word_to_documents_.at(word)) {
         for (const auto &[document_id, relevance] : document_to_relevance) {
             matched_documents.push_back({document_id, relevance});
         }
+        
         return matched_documents;
     }
 };
@@ -189,20 +198,5 @@ int main() {
         cout << "{ document_id = "s << document_id << ", "
              << "relevance = "s << relevance << " }"s << endl;
     }
+
 }
-
-тренажер ссылается на строки которых нет в документе, а vs code пишет следующее
-
-1759 |     operator<(const move_iterator<_Iterator>& __x,
-      |     ^~~~~~~~
-C:/DEV/msys64/mingw64/include/c++/14.1.0/bits/stl_iterator.h:1759:5: note:   template argument deduction/substitution failed:
-C:/DEV/msys64/mingw64/include/c++/14.1.0/bits/stl_function.h:405:20: note:   'const SearchServer::IdWithTf' is not derived from 'const std::move_iterator<_IteratorL>'
-  405 |       { return __x < __y; }
-      |                ~~^~~
-
-Сборка завершена с ошибками.
-
- *  The terminal process terminated with exit code: -1. 
- *  Terminal will be reused by tasks, press any key to close it.
-
-как я понял это из-за конфликта функции SearchServer и моей структуры IdWithTf, но где именно происходит конфликт, я совсем не понимаю
