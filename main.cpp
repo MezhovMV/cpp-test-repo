@@ -7,6 +7,7 @@
 #include <vector>
 #include <cmath>
 
+
 using namespace std;
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
 
@@ -22,6 +23,10 @@ int ReadLineWithNumber() {
     ReadLine();
     return result;
 }
+
+
+
+
 
 vector<string> SplitIntoWords(const string& text) {
     vector<string> words;
@@ -40,6 +45,16 @@ vector<string> SplitIntoWords(const string& text) {
         words.push_back(word);
     }
     return words;
+}
+
+vector <int> StringToNumberVector (const string& line) {
+    vector <int> result;
+    vector <string> numbers = SplitIntoWords(line);
+    for (string x : numbers) {
+        int number = stoi(x);
+        result.push_back(number);
+    }
+    return result;
 }
 
 struct Document {
@@ -105,16 +120,20 @@ double CountIdf (const string& word) const {
 
 int ComputeAverageRating (const vector<int>& rating_list) {
     int result;
-    int sum = 0;
-    int size = 1;
-    if (!rating_list.size() == 0){
-    size = rating_list.size();
+    
+    int size = rating_list[0];
+    if (size == 0) {
+        return 0;
     }
+    else {
+    int sum = -size;
+
     for (int i : rating_list) {
         sum += i; 
     }
-    result= sum/size;
+    result = sum/size;
     return result;
+    }
 }
     
     struct QueryWord {
@@ -222,12 +241,16 @@ SearchServer CreateSearchServer() {
     const int document_count = ReadLineWithNumber();    
     for (int document_id = 0; document_id < document_count; ++document_id) {
         string text = ReadLine();
-        int size = ReadLineWithNumber();
+        string numbers = ReadLine();
         vector <int> ratings;
-        for (int i=0; i < size; i++) {
-            int x = ReadLineWithNumber();         
-            ratings.push_back(x); 
+        vector <int> number_vector = StringToNumberVector(numbers);
+        if (number_vector.empty()) {
+            ratings.push_back(0);
         }
+        else {
+           ratings = number_vector; 
+      } 
+       
     search_server.AddDocument(document_id, text, ratings);
     }
     return search_server;
