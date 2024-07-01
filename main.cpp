@@ -9,17 +9,20 @@
 
 using namespace std;
 const int MAX_RESULT_DOCUMENT_COUNT = 5;
+
 string ReadLine() {
     string s;
     getline(cin, s);
     return s;
 }
+
 int ReadLineWithNumber() {
     int result = 0;
     cin >> result;
     ReadLine();
     return result;
 }
+
 vector<string> SplitIntoWords(const string& text) {
     vector<string> words;
     string word;
@@ -38,60 +41,94 @@ vector<string> SplitIntoWords(const string& text) {
     }
     return words;
 }
+
 struct Document {
     int id;
     double relevance;
+    int rating;
 };
+
+
+
 class SearchServer {
 public:
-    void SetStopWords(const string& text) {
+        void SetStopWords(const string& text) {
         for (const string& word : SplitIntoWords(text)) {
             stop_words_.insert(word);
         }
     }
     
     // добавляем новый документ в мапу, высчитывая значения tf 
-    void AddDocument(int document_id, const string& document) {
+  void AddDocument(int document_id,  const string& document, const vector <int>& rating_list) {
+        ++document_count_;
+        vector <string> word_in_document = SplitIntoWordsNoStop(document);
+        const double average_tf = 1.0 / word_in_document.size();
+        int average_rating = ComputeAverageRating(rating_list);
+        
         for (const string& word : SplitIntoWordsNoStop(document)) {
-           document_count_++;
-           word_to_documents_[word].insert({document_id, 1.0/SplitIntoWordsNoStop(document).size() * count(SplitIntoWordsNoStop(document).begin(), SplitIntoWordsNoStop(document).end(), word) });
-            
+            double tf = average_tf * count(word_in_document.begin(), word_in_document.end(), word);
+            word_to_documents_[word][document_id] = {tf, average_rating};
         }
-        return;
     }
-   
+    
     vector<Document> FindTopDocuments(const string& raw_query) const {
-        const Query query = ParseQuery(raw_query);
-        auto matched_documents = FindAllDocuments(query);
+       const Query query = ParseQuery(raw_query);
+       auto matched_documents = FindAllDocuments(query);
        sort(matched_documents.begin(), matched_documents.end(), // отсортируем по релевантности
-             [](const Document& lhs, const Document& rhs) {
-                 return lhs.relevance > rhs.relevance;
-             });
+           [](const Document& lhs, const Document& rhs) {
+               return lhs.relevance > rhs.relevance;
+           });
         if (matched_documents.size() > MAX_RESULT_DOCUMENT_COUNT) {
             matched_documents.resize(MAX_RESULT_DOCUMENT_COUNT);
         } 
         return matched_documents;
     }
-private:
-    int documentcount = 0;    
+private:     
+     int document_count_ = 0;
+     
+     struct TfWithAverageRating
+     {
+        double tf;
+        int average_rating;
+     };
+     
+     
+    // будем хранить в словаре номер документа  с структурой TfWithAverageRating
+    map<string, map<int, TfWithAverageRating>> word_to_documents_;
+    
+    // посчитаем Idf здесь
+double CountIdf (const string& word) const {
+     double idf; 
+     idf = log(static_cast<double>(document_count_) / word_to_documents_.at(word).size());
+    return idf;
+}
+
+int ComputeAverageRating (const vector<int>& rating_list) {
+    int result;
+    int sum = 0;
+    int size = 1;
+    if (!rating_list.size() == 0){
+    size = rating_list.size();
+    }
+    for (int i : rating_list) {
+        sum += i; 
+    }
+    result= sum/size;
+    return result;
+}
+    
     struct QueryWord {
         string data;
         bool is_minus;
         bool is_stop;
     };
+    
     struct Query {
         set<string> plus_words;
         set<string> minus_words;
     };
     set<string> stop_words_;
-    
-    // будем хранить в словаре номер документа сразу с TF
-    struct IdWithTf {
-        int id;
-        double tf;
-    };
-    map<string, set<IdWithTf>> word_to_documents_;
-    
+       
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
     }
@@ -130,79 +167,80 @@ private:
         }
         return query;
     }
-    
+        
     vector<Document> FindAllDocuments(const Query& query) const {
-        map<int, double> document_to_relevance;
+        struct RelevanceWithRating
+        {
+           double relevance;
+           int rating; 
+        };
+        
+        map<int, RelevanceWithRating> document_to_relevance;
+
+
         // проходим по плюс-словам
         for (const string& word : query.plus_words) {
             if (word_to_documents_.count(word) == 0) {
                 continue;
-            }
-            
-          // Если слово есть в словаре
-            // вычилим релевантнось
-
-
-for (const auto &current_document : word_to_documents_.at(word)) {
-                double idf = log (documentcount / word_to_documents_.at(word).size());
-                double current_relevance = idf *current_document.tf;
-                // запишим результат в словарь id-релевантось сумируя с прошлыми записями по id
-                //для этого проверим если запись для этого id если нет то создадим
-                if (document_to_relevance.count(current_document.id) == 0) {
-                   document_to_relevance.insert({current_document.id, current_relevance}); 
-                }
-                // если есть то увеличим релевантнось
-                else {document_to_relevance[current_document.id] += current_relevance; }
+            }            
+          // Если слово есть в словаре вычиcлим текущую релевантнось
+            const double idf = CountIdf(word);
+            for (const auto &[id, my_struct] : word_to_documents_.at(word)) {            
+                double current_relevance = idf * my_struct.tf;
+             // увеличим релевантнось
+                document_to_relevance[id].relevance += current_relevance;
+                document_to_relevance[id].rating = my_struct.average_rating;    
             }
         }
-            
+             
             // проходим по минус словам
         for (const string& word : query.minus_words) {
             if (word_to_documents_.count(word) == 0) {
                 continue;
             }
-            for (const auto current_document : word_to_documents_.at(word)) {
-                document_to_relevance.erase(current_document.id);
+            for (auto &[id, my_struct] : word_to_documents_.at(word)) {               
+                     if (!document_to_relevance.count(id) == 0) {
+                         document_to_relevance.erase(id);
+                     }                                 
             }
         }
         
         vector<Document> matched_documents;
-        for (const auto &[document_id, relevance] : document_to_relevance) {
-            matched_documents.push_back({document_id, relevance});
+        for (const auto &[document_id, result] : document_to_relevance) {
+
+            matched_documents.push_back({document_id, result.relevance, result.rating});
         }
+        
         return matched_documents;
     }
 };
+
 SearchServer CreateSearchServer() {
     SearchServer search_server;
     search_server.SetStopWords(ReadLine());
-    const int document_count = ReadLineWithNumber();
+
+    const int document_count = ReadLineWithNumber();    
     for (int document_id = 0; document_id < document_count; ++document_id) {
-        search_server.AddDocument(document_id, ReadLine());
+        string text = ReadLine();
+        int size = ReadLineWithNumber();
+        vector <int> ratings;
+        for (int i=0; i < size; i++) {
+            int x = ReadLineWithNumber();         
+            ratings.push_back(x); 
+        }
+    search_server.AddDocument(document_id, text, ratings);
     }
     return search_server;
 }
+
 int main() {
     const SearchServer search_server = CreateSearchServer();
     const string query = ReadLine();
-    for (const auto& [document_id, relevance] : search_server.FindTopDocuments(query)) {
+    for (const auto& [document_id, relevance, rating] : search_server.FindTopDocuments(query)) {
         cout << "{ document_id = "s << document_id << ", "
-             << "relevance = "s << relevance << " }"s << endl;
-    }
+             << "relevance = "s << relevance << " "s << 
+             "rating = "s << rating << " }"s << endl;
+        }
+
+
 }
-
-тренажер ссылается на строки которых нет в документе, а vs code пишет следующее
-
-1759 |     operator<(const move_iterator<_Iterator>& __x,
-      |     ^~~~~~~~
-C:/DEV/msys64/mingw64/include/c++/14.1.0/bits/stl_iterator.h:1759:5: note:   template argument deduction/substitution failed:
-C:/DEV/msys64/mingw64/include/c++/14.1.0/bits/stl_function.h:405:20: note:   'const SearchServer::IdWithTf' is not derived from 'const std::move_iterator<_IteratorL>'
-  405 |       { return __x < __y; }
-      |                ~~^~~
-
-Сборка завершена с ошибками.
-
- *  The terminal process terminated with exit code: -1. 
- *  Terminal will be reused by tasks, press any key to close it.
-
-как я понял это из-за конфликта функции SearchServer и моей структуры IdWithTf, но где именно происходит конфликт, я совсем не понимаю
